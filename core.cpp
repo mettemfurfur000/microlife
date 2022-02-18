@@ -11,7 +11,7 @@ const int size_x = 128;
 const int size_y = 128;
 const int cellsize = 4;
 
-int mutation_chance = 1; //5 = 0.5%, 1000 = 100%
+int mutation_chance = 10; //5 = 0.5%, 1000 = 100%
 int fat2en_k_u = 3;
 int fat2en_k_d = 4;
 
@@ -49,7 +49,6 @@ struct cell
 	unsigned int wait_move:1;
 };
 
-
 struct cell **plate;
 
 int light[size_x][size_y];
@@ -61,6 +60,13 @@ type
 3 - cell
 4 - dev_wall
 */
+
+void wait(int ms)
+{
+	int CL_PER_MS = CLOCKS_PER_SEC / 1000;
+	int waittime = clock() + CL_PER_MS * ms;
+	while(waittime > clock()){}
+}
 
 int CellSpawn(int x,int y,int type)
 {
@@ -146,27 +152,31 @@ void SetWall(int x,int y)
 	}
 }
 
-int CellDrop(int x,int y,int type)
+void CellDrop(int x,int y,int type)
 {
-	int loop;
-	while(CellSpawn(x+rand()%3-1,y+rand()%3-1,type)&&loop<12)
+	int a[3][3] = {{0,0,0},{0,0,0},{0,0,0}};
+	int dx,dy;
+	int sum=0;
+	while(true)
 	{
-		loop++;
+CellDropLable:
+		sum++;
+		dx = rand()%3-1;
+		dy = rand()%3-1;
+		if(a[dx+1][dy+1]==0)
+		{
+			if(plate[x+dx][y+dy].id==0)
+			{
+				CellSpawn(x+dx,y+dy,1);
+				break;
+			}
+			else
+			{
+				if(sum==9) break;
+			}
+		}
+		else goto CellDropLable;
 	}
-	if(loop<12)
-	{
-		plate[x][y].fat--;
-		return 0; //success
-	}
-	else
-	{
-		return 1; //error, stinky! too crowded!!!
-	}
-	/*
-	he will loop, while CellSpawn return 1 (he will repeat, until Cell Drop Fat)
-	
-	or until he did 12 loops. then we need to return 1 - fat cant spawn => cant drop;
-	*/
 }
 
 int CellConsume(int x,int y,int type)
@@ -186,6 +196,14 @@ int CellConsume(int x,int y,int type)
 		loop++;
 	}
 	return 1; //error, stinky! too crowded!!!
+}
+
+void CellChekStick(int x,int y)
+{
+	if(plate[x+1][y].id==0) plate[x][y].stick_left = 0;
+	if(plate[x-1][y].id==0) plate[x][y].stick_right = 0;
+	if(plate[x][y+1].id==0) plate[x][y].stick_down = 0;
+	if(plate[x][y-1].id==0) plate[x][y].stick_up = 0;
 }
 
 void CellStick(int x,int y,int side,int flag)
@@ -270,7 +288,7 @@ void Transfer(int x,int y,int mode, int side)
 	2 - organic
 	3 - cell
 	*/	
-	printf("%d|%d|%d|%d\n",x,y,mode,side);
+	//printf("%d|%d|%d|%d\n",x,y,mode,side);
 	switch(side)//select side of energy/fat transfer
 	{
 		case 0:
@@ -434,7 +452,7 @@ void CellBite(int x,int y)
 
 void CellMove(int x,int y,int dx,int dy,int mode)
 {
-	if(mode == 1)
+	if(mode == 1 && plate[x][y].id == 3)
 	{
 		plate[x][y].energy-=4;
 	}
@@ -495,7 +513,7 @@ void CellClone(int x,int y,int dx,int dy)
 			plate[x+dx][y+dy].genome[i].gen=plate[x][y].genome[i].gen;
 			if(rand()%1000<mutation_chance)
 			{
-				plate[x+dx][y+dy].genome[i].gen=rand()%16;
+				plate[x+dx][y+dy].genome[i].gen+=rand()%16;
 			}
 		}
 	}
@@ -512,7 +530,7 @@ void GenomeTick(int x,int y)
 	{
 		//photosintez
 		case 1:
-			plate[x][y].energy+=light[x][y];
+			plate[x][y].energy+=light[x][y]*3;
 			plate[x][y].gen_select++;
 			break;
 		//fat to energy
@@ -538,6 +556,7 @@ void GenomeTick(int x,int y)
 			if(plate[x][y].fat>0)
 			{
 				CellDrop(x,y,1);
+				plate[x][y].fat--;
 			}
 			plate[x][y].gen_select++;
 			break;
@@ -677,12 +696,16 @@ void WorldTick()
 		{
 			if(plate[i][j].id==3)
 			{
+				CellChekStick(i,j);
 				if(plate[i][j].energy>32)
 				{
 					plate[i][j].energy-=32;
 				}else{
 					SetAir(i,j);
-					CellSpawn(i,j,1);
+					if(plate[i][j].fat>0)
+					{
+						CellSpawn(i,j,1);
+					}
 				}
 				GenomeTick(i,j);
 			}
@@ -702,7 +725,7 @@ void LightGen()
 	}
 	int num=0;
 	int t=1;
-	for(int k;k<8;k++)//smooth0
+	for(int k=0;k<20;k++)//smooth0
 	{
 		for(int x=0;x<size_x;x++)
 		{
@@ -710,17 +733,17 @@ void LightGen()
 			{
 				num=0;
 				t=1;
-				num=num+light[x][y];
+				num+=light[x][y];
 				int wsxl = size_x-1;
 				int wsyl = size_y-1;
-				if(x>0)					{num=num+light[x-1][y];	t++;}
-				if(y>0)					{num=num+light[x][y-1];	t++;}
-				if(x<wsxl)				{num=num+light[x+1][y];	t++;}
-				if(y<wsyl)				{num=num+light[x][y+1];	t++;}
-				if(x>0&&y>0)			{num=num+light[x-1][y-1];	t++;}
-				if(x<wsxl&&y>0)			{num=num+light[x+1][y-1];	t++;}
-				if(y<wsyl&&x>0)			{num=num+light[x-1][y+1];	t++;}
-				if(x<wsxl&&y<wsyl)		{num=num+light[x+1][y+1];	t++;}
+				if(x>0)					{num+=light[x-1][y];	t++;}
+				if(y>0)					{num+=light[x][y-1];	t++;}
+				if(x<wsxl)				{num+=light[x+1][y];	t++;}
+				if(y<wsyl)				{num+=light[x][y+1];	t++;}
+				if(x>0&&y>0)			{num+=light[x-1][y-1];	t++;}
+				if(x<wsxl&&y>0)			{num+=light[x+1][y-1];	t++;}
+				if(y<wsyl&&x>0)			{num+=light[x-1][y+1];	t++;}
+				if(x<wsxl&&y<wsyl)		{num+=+light[x+1][y+1];	t++;}
 				buff[x][y]=int(num/t);
 			}
 		}
@@ -732,16 +755,136 @@ void LightGen()
 			}
 		}
 	}
+}
+
+struct raw_cell
+{
+	unsigned char data[300];
+};
+
+void CellConvertToRaw(struct cell source,struct raw_cell *dest)
+{
+	dest->data[0] = source.id % 256; //first byte
+	dest->data[1] = source.id >> 8; //last byte
+	dest->data[2] = source.energy % 256;
+	dest->data[3] = source.energy >> 8;
+	dest->data[4] = source.fat;
+	dest->data[5] = source.gen_select;
 	
+	dest->data[6] = source.stick_up;
+	dest->data[7] = source.stick_down;
+	dest->data[8] = source.stick_left;
+	dest->data[9] = source.stick_right;
 	
-	for(int t=0;t<10;t++)
+	dest->data[10] = source.wait_move;
+	
+	for(int i=0;i<genome_len;i++)
 	{
-		for(int i=0;i<size_x;i++)
+		dest->data[10+i] = source.genome[i].gen;
+	}
+}
+
+void Save()
+{
+	FILE * f = fopen("savefile.bin","wb");
+	struct raw_cell raw_buff;
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
 		{
-			for(int j=0;j<size_y;j++)
+			CellConvertToRaw(plate[i][j],&raw_buff);
+			int h = 0;
+			for(h=0;h<11;h++)
 			{
-				light[i][j]=rand()%100;
+				putc(raw_buff.data[h],f);
 			}
+			for(;h<256;h++)
+			{
+				putc(raw_buff.data[h],f);
+			}
+		}
+	}
+	fclose(f);
+}
+
+void LightShow()
+{
+	swapbuffers();
+	int l = 0;
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			l = light[i][j];
+			setfillstyle(1,COLOR(l+20,l+20,l));
+			bar(i*cellsize,j*cellsize,i*cellsize+cellsize,j*cellsize+cellsize);
+		}
+	}
+	swapbuffers();
+}
+
+void TextShow(char *str,int time,int dx,int dy)
+{
+	int x_center = size_x/2 + dx;
+	int y_center = size_y/2 + dy;
+	
+	int c_l = strlen(str)+1;
+	int wind_x = c_l + 1;
+	int wind_y = 4;
+	swapbuffers();
+	setfillstyle(4,COLOR(132,99,99));
+	bar((x_center-wind_x)*cellsize,(y_center-wind_y)*cellsize,(x_center+wind_x)*cellsize,(y_center+wind_y)*cellsize);
+
+	setfillstyle(1,COLOR(199,162,111));
+	bar((x_center-wind_x+1)*cellsize,(y_center-wind_y+1)*cellsize,(x_center+wind_x-1)*cellsize,(y_center+wind_y-1)*cellsize);
+	
+	outtextxy((x_center-wind_x+2)*cellsize,(y_center-wind_y+2)*cellsize,str);
+	swapbuffers();
+	wait(time);
+}
+
+void CommandInput(char *str)
+{
+	if(strcmp(str,"save")==0)
+	{
+		Save();
+		TextShow("Plate Saved! Check file savefile.bin",2000,0,0);
+	}
+	if(strcmp(str,"light")==0)
+	{
+		TextShow("Showing LightMap. . .",500,0,0);
+		LightShow();
+		getch();
+	}
+}
+
+void GetCommand()
+{
+	char buf[190] = {0};
+	char command[128] = {0};
+	char c;
+	int i = 0;
+	if(kbhit()==1)
+	{
+		if(getch()=='c')
+		{
+			TextShow("Print Command",5,0,0);
+			while(true)
+			{
+				c = getch();
+				if(c==';') break;
+				command[i] = c;
+				TextShow(command,5,0,8);
+				i++;
+				if(i>=128)
+				{
+					TextShow("Too long command!",2000,0,0);
+					break;
+				}
+			}
+			sprintf(buf,"Command:%s",command);
+			TextShow(buf,1000,0,16);
+			CommandInput(command);
 		}
 	}
 }
@@ -770,30 +913,29 @@ int main()
 	
 	for(int i=0;i<size_x;i++)
 	{
-		srand(rand());
+		srand(rand()+rand());
 		for(int j=0;j<size_y;j++)
 		{
-			if(rand()%2==0) 
-			{
-				CellSpawn(i,j,3);
-			}
+			CellSpawn(i,j,3);
 		}
 	}
 	
 	LightGen();
 	//spawning end
 	int dev_time = 0;
-	int ready=0;
 	swapbuffers();
 	DrawCells();
 	swapbuffers();
-	while(dev_time<1000)
+	while(dev_time<10000)
 	{
-		printf("%d\n",dev_time);
-		ready = kbhit();
-		DrawCells();
+		GetCommand();
+		if(dev_time%20==0)
+		{
+			DrawCells();
+			printf("%d\n",dev_time);
+			swapbuffers();
+		}
 		WorldTick();
-		swapbuffers();
 		dev_time++;
 	}
 	getch();
