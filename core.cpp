@@ -72,7 +72,7 @@ int CellSpawn(int x,int y,int type)
 			case 0:plate[x][y].energy = 0; break;
 			case 1:plate[x][y].energy = 90; break;
 			case 2:plate[x][y].energy = 512; break;
-			case 3:plate[x][y].energy = 4096; break;
+			case 3:plate[x][y].energy = 1024; break;
 		}
 		switch(type)
 		{
@@ -171,7 +171,7 @@ int CellDrop(int x,int y,int type)
 
 int CellConsume(int x,int y,int type)
 {
-	int loop;
+	int loop = 0;
 	int sx,sy;
 	while(loop<12)
 	{
@@ -179,7 +179,7 @@ int CellConsume(int x,int y,int type)
 		sy = rand()%3-1;
 		if(plate[x+sx][y+sy].id==1)
 		{
-			CellSpawn(x+sx,y+sy,0);
+			SetAir(x+sx,y+sy);
 			plate[x][y].fat++;
 			return 0; //success
 		}
@@ -193,38 +193,59 @@ void CellStick(int x,int y,int side,int flag)
 	switch(side)
 	{
 		case 0:
-			plate[x][y].stick_up = flag;
-			plate[x][y+1].stick_down = flag;
+			if(plate[x][y+1].id!=4)
+			{
+				plate[x][y].stick_up = flag;
+				plate[x][y+1].stick_down = flag;
+			}
 			break;
 		case 1:
-			plate[x][y].stick_down = flag;
-			plate[x][y-1].stick_up = flag;
+			if(plate[x][y-1].id!=4)
+			{
+				plate[x][y].stick_down = flag;
+				plate[x][y-1].stick_up = flag;
+			}
 			break;
 		case 2:
-			plate[x][y].stick_right = flag;
-			plate[x+1][y].stick_left = flag;
+			if(plate[x+1][y].id!=4)
+			{
+				plate[x][y].stick_right = flag;
+				plate[x+1][y].stick_left = flag;
+			}
 			break;
 		case 3:
-			plate[x][y].stick_left = flag;
-			plate[x-1][y].stick_right = flag;
+			if(plate[x-1][y].id!=4)
+			{
+				plate[x][y].stick_left = flag;
+				plate[x-1][y].stick_right = flag;
+			}
 			break;
 	}
 }
 
+struct amo
+{
+	unsigned int value:8;
+};
+
 void CellGenomeCopy(int x,int y,int tx,int ty,int gen_start,int gen_end,int gen_dest)
 {
-	int buffer[genome_len];
-	
-	for(int i=gen_start;i%genome_len!=gen_end;i++)
+	int buffer[genome_len+50];
+	struct amo i;
+	int j=0;
+	for(i.value=gen_start;i.value!=(gen_end+1)%genome_len;i.value++)
 	{
-		buffer[i] = plate[x][y].genome[i].gen;
+		buffer[j] = plate[x][y].genome[i.value].gen;
+		j++;
 	}
 	
-	unsigned char gen_dest_end = (gen_end - gen_start + 1);//calculate size of copied genome
+	unsigned int gen_dest_end = j;//calculate size of copied genome
 	
-	for(int i=gen_dest;i%genome_len!=gen_dest_end;i++)
+	j=0;
+	for(i.value=gen_dest;i.value!=(gen_dest_end+1)%genome_len;i.value++)
 	{
-		plate[tx][ty].genome[i].gen = buffer[i];
+		plate[tx][ty].genome[i.value].gen = buffer[j];
+		j++;
 	}
 }
 
@@ -249,7 +270,7 @@ void Transfer(int x,int y,int mode, int side)
 	2 - organic
 	3 - cell
 	*/	
-	
+	printf("%d|%d|%d|%d\n",x,y,mode,side);
 	switch(side)//select side of energy/fat transfer
 	{
 		case 0:
@@ -258,22 +279,25 @@ void Transfer(int x,int y,int mode, int side)
 				switch(mode) //select mode of transfer, energy or fat
 				{
 					case 0:
-						if(plate[x][y].energy>512)
+						if(plate[x][y].energy>512&&plate[x][y+1].energy<65024)
 						{
 							plate[x][y].energy-=512;
 							plate[x][y+1].energy+=512;
 						}
 						break;
 					case 1:
-						if(plate[x][y].fat>0)
+						if(plate[x][y].fat>0&&plate[x][y+1].fat<15)
 						{
 							plate[x][y].fat-=1;
 							plate[x][y+1].fat+=1;
 						}
 						break;
 					case 2:
-						CellGenomeCopy(x,y,x,y+1,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
-						plate[x][y].energy-=256;
+						if(plate[x][y].energy>256)
+						{
+							CellGenomeCopy(x,y,x,y+1,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
+							plate[x][y].energy-=256;
+						}
 						break;
 				}
 			}
@@ -298,8 +322,11 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 2:
-						CellGenomeCopy(x,y,x,y-1,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
-						plate[x][y].energy-=256;
+						if(plate[x][y].energy>256)
+						{
+							CellGenomeCopy(x,y,x,y-1,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
+							plate[x][y].energy-=256;
+						}
 						break;
 				}
 			}
@@ -324,8 +351,11 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 2:
-						CellGenomeCopy(x,y,x+1,y,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
-						plate[x][y].energy-=256;
+						if(plate[x][y].energy>256)
+						{
+							CellGenomeCopy(x,y,x+1,y,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
+							plate[x][y].energy-=256;
+						}
 						break;
 				}
 			}
@@ -350,8 +380,11 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 2:
-						CellGenomeCopy(x,y,x-1,y,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
-						plate[x][y].energy-=256;
+						if(plate[x][y].energy>256)
+						{
+							CellGenomeCopy(x,y,x-1,y,plate[x][y].genome[(plate[x][y].gen_select+3)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+4)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+5)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+6)%genome_len].gen,plate[x][y].genome[(plate[x][y].gen_select+7)%genome_len].gen*16 + plate[x][y].genome[(plate[x][y].gen_select+8)%genome_len].gen);
+							plate[x][y].energy-=256;
+						}
 						break;
 				}
 			}
@@ -418,15 +451,15 @@ void CellMove(int x,int y,int dx,int dy,int mode)
 		plate[x][y].wait_move = 1;
 		CellMove(x,y+1,dx,dy,mode);
 	}
-	if(plate[x][y].stick_right==1&&plate[x+1][y].wait_move==0)
-	{
-		plate[x][y].wait_move = 1;
-		CellMove(x+1,y,dx,dy,mode);
-	} 
 	if(plate[x][y].stick_left==1&&plate[x-1][y].wait_move==0)
 	{
 		plate[x][y].wait_move = 1;
 		CellMove(x-1,y,dx,dy,mode);
+	} 
+	if(plate[x][y].stick_right==1&&plate[x+1][y].wait_move==0)
+	{
+		plate[x][y].wait_move = 1;
+		CellMove(x+1,y,dx,dy,mode);
 	}
 	
 	//second, move self! (if free)
@@ -448,7 +481,7 @@ void CellClone(int x,int y,int dx,int dy)
 		plate[x][y].energy-=2048;
 		plate[x+dx][y+dy].id = 3;
 		plate[x+dx][y+dy].fat = 0;
-		plate[x+dx][y+dy].energy = 2048;
+		plate[x+dx][y+dy].energy = 1024;
 		
 		plate[x+dx][y+dy].gen_select = 0;
 		
@@ -474,7 +507,8 @@ void GenomeTick(int x,int y)
 	int ret;
 	int bx=0;
 	int by=0;
-	switch(plate[x][y].genome[plate[x][y].gen_select].gen)
+	int gen = plate[x][y].genome[plate[x][y].gen_select].gen;
+	switch(gen)
 	{
 		//photosintez
 		case 1:
@@ -555,6 +589,7 @@ void GenomeTick(int x,int y)
 		//bite
 		case 12:
 			CellBite(x,y);
+			plate[x][y].gen_select++;
 			break;
 		//move
 		case 13:
@@ -574,6 +609,7 @@ void GenomeTick(int x,int y)
 					break;
 			}
 			CellMove(x,y,by,bx,1);
+			plate[x][y].gen_select+=2;
 			break;
 		//cell replication
 		case 14:
@@ -593,6 +629,7 @@ void GenomeTick(int x,int y)
 					break;
 			}
 			CellClone(x,y,bx,by);
+			plate[x][y].gen_select+=2;
 			break;
 	}
 }
@@ -612,6 +649,9 @@ int CellDraw(int x,int y)
 			break;
 		case 3:
 			setfillstyle(1,COLOR(49,230,0));
+			break;
+		case 4:
+			setfillstyle(1,COLOR(0,0,0));
 			break;
 	}
 	bar(x*cellsize,y*cellsize,x*cellsize+cellsize,y*cellsize+cellsize);
@@ -637,13 +677,70 @@ void WorldTick()
 		{
 			if(plate[i][j].id==3)
 			{
-				if(plate[i][j].energy<16)
+				if(plate[i][j].energy>32)
 				{
+					plate[i][j].energy-=32;
+				}else{
 					SetAir(i,j);
 					CellSpawn(i,j,1);
 				}
 				GenomeTick(i,j);
-				plate[i][j].energy--;
+			}
+		}
+	}
+}
+
+void LightGen()
+{
+	int buff[size_x][size_y];
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			light[i][j]=rand()%100;
+		}
+	}
+	int num=0;
+	int t=1;
+	for(int k;k<8;k++)//smooth0
+	{
+		for(int x=0;x<size_x;x++)
+		{
+			for(int y=0;y<size_y;y++)
+			{
+				num=0;
+				t=1;
+				num=num+light[x][y];
+				int wsxl = size_x-1;
+				int wsyl = size_y-1;
+				if(x>0)					{num=num+light[x-1][y];	t++;}
+				if(y>0)					{num=num+light[x][y-1];	t++;}
+				if(x<wsxl)				{num=num+light[x+1][y];	t++;}
+				if(y<wsyl)				{num=num+light[x][y+1];	t++;}
+				if(x>0&&y>0)			{num=num+light[x-1][y-1];	t++;}
+				if(x<wsxl&&y>0)			{num=num+light[x+1][y-1];	t++;}
+				if(y<wsyl&&x>0)			{num=num+light[x-1][y+1];	t++;}
+				if(x<wsxl&&y<wsyl)		{num=num+light[x+1][y+1];	t++;}
+				buff[x][y]=int(num/t);
+			}
+		}
+		for(int x=0;x<size_x;x++) 
+		{
+			for(int y=0;y<size_y;y++) 
+			{
+				light[x][y]=buff[x][y];
+			}
+		}
+	}
+	
+	
+	for(int t=0;t<10;t++)
+	{
+		for(int i=0;i<size_x;i++)
+		{
+			for(int j=0;j<size_y;j++)
+			{
+				light[i][j]=rand()%100;
 			}
 		}
 	}
@@ -676,19 +773,23 @@ int main()
 		srand(rand());
 		for(int j=0;j<size_y;j++)
 		{
-			if(rand()%4==0) 
+			if(rand()%2==0) 
 			{
 				CellSpawn(i,j,3);
 			}
 		}
 	}
-
+	
+	LightGen();
 	//spawning end
 	int dev_time = 0;
 	int ready=0;
 	swapbuffers();
+	DrawCells();
+	swapbuffers();
 	while(dev_time<1000)
 	{
+		printf("%d\n",dev_time);
 		ready = kbhit();
 		DrawCells();
 		WorldTick();
