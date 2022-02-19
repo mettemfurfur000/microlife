@@ -159,7 +159,6 @@ void CellDrop(int x,int y,int type)
 	int sum=0;
 	while(true)
 	{
-CellDropLable:
 		sum++;
 		dx = rand()%3-1;
 		dy = rand()%3-1;
@@ -175,7 +174,6 @@ CellDropLable:
 				if(sum==9) break;
 			}
 		}
-		else goto CellDropLable;
 	}
 }
 
