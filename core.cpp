@@ -7,8 +7,8 @@
 #include <graphics.h>
 
 const int genome_len = 256;
-const int size_x = 128;
-const int size_y = 128;
+const int size_x = 170;
+const int size_y = 170;
 const int cellsize = 4;
 
 int mutation_chance = 50; //5 = 0.5%, 1000 = 100%
@@ -455,8 +455,8 @@ void CellMove(int x,int y,int dx,int dy,int mode)
 		plate[x][y].energy-=4;
 	}
 	
-	//first, move others (if you sticky)
-	
+	//there is nothing interesting
+	/*
 	if(plate[x][y].stick_up==1&&plate[x][y-1].wait_move==0) 
 	{
 		plate[x][y].wait_move = 1;
@@ -477,8 +477,10 @@ void CellMove(int x,int y,int dx,int dy,int mode)
 		plate[x][y].wait_move = 1;
 		CellMove(x+1,y,dx,dy,mode);
 	}
+	*/
 	
-	//second, move self! (if free)
+	
+	//FIRST, move self!
 	
 	if(plate[x+dx][y+dy].id==0)
 	{
@@ -590,13 +592,13 @@ void GenomeTick(int x,int y)
 			break;
 		//sticky man
 		case 9:
-			CellStick(x,y,plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen%4,1);
-			plate[x][y].gen_select++;
+			//CellStick(x,y,plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen%4,1);
+			//plate[x][y].gen_select++;
 			break;
 		//not sticky man
 		case 10:
-			CellStick(x,y,plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen%4,0);
-			plate[x][y].gen_select++;
+			//CellStick(x,y,plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen%4,0);
+			//plate[x][y].gen_select++;
 			break;
 		//transfers modes
 		case 11:
@@ -688,6 +690,13 @@ void DrawCells()
 
 void WorldTick()
 {
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			if(i==0||j==0||i==size_x-1||j==size_y-1) SetWall(i,j);
+		}
+	}
 	for(int i=0;i<size_x;i++)
 	{
 		for(int j=0;j<size_y;j++)
@@ -930,6 +939,8 @@ void TextShow(char *str,int time,int dx,int dy)
 	wait(time);
 }
 
+void StatPrint(char *message);
+
 void CommandInput(char *str)
 {
 	if(strcmp(str,"save")==0)
@@ -950,6 +961,7 @@ void CommandInput(char *str)
 	}
 	if(strcmp(str,"exit")==0)
 	{
+		StatPrint("END OF SIMULATION\n\n");
 		exit(0);
 	}
 	if(strcmp(str,"reload")==0)
@@ -1005,6 +1017,33 @@ void GetCommand()
 	}
 }
 
+void StatCellNum(int dev_time)
+{
+	FILE * f = fopen("stats.bin","a");
+	int cells = 0;
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			if(plate[i][j].id==3)
+			{
+				cells++;
+			}
+		}
+	}
+	char str[32];
+	sprintf(str,"Time: %d \t Cell Count: %d \n",dev_time,cells);
+	fputs(str,f);
+	fclose(f);
+}
+
+void StatPrint(char *message)
+{
+	FILE * f = fopen("stats.bin","a");
+	fputs(message,f);
+	fclose(f);
+}
+
 int main()
 {
 	srand(time(NULL));
@@ -1040,25 +1079,27 @@ int main()
 	}
 	
 	
-	
+	StatPrint("START OF SIMULATION\n");
 	LightGen();
 	//spawning end
-	int dev_time = 0;
+	unsigned long long dev_time = 0;
 	swapbuffers();
 	DrawCells();
 	swapbuffers();
 	while(true)
 	{
 		GetCommand();
-		if(clock()%20==0)
+		if(dev_time%10==0)
 		{
 			DrawCells();
 			printf("%d\n",dev_time);
 			swapbuffers();
+			StatCellNum(dev_time);
 		}
 		WorldTick();
 		dev_time++;
 	}
+	StatPrint("END OF SIMULATION\n\n");
 	getch();
 	return 0;
 }
