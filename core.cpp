@@ -11,7 +11,7 @@ const int size_x = 128;
 const int size_y = 128;
 const int cellsize = 4;
 
-int mutation_chance = 10; //5 = 0.5%, 1000 = 100%
+int mutation_chance = 50; //5 = 0.5%, 1000 = 100%
 int fat2en_k_u = 3;
 int fat2en_k_d = 4;
 
@@ -760,26 +760,111 @@ struct raw_cell
 	unsigned char data[300];
 };
 
-void CellConvertToRaw(struct cell source,struct raw_cell *dest)
+void FCellPrint(FILE * file,struct cell source)
 {
-	dest->data[0] = source.id % 256; //first byte
-	dest->data[1] = source.id >> 8; //last byte
-	dest->data[2] = source.energy % 256;
-	dest->data[3] = source.energy >> 8;
-	dest->data[4] = source.fat;
-	dest->data[5] = source.gen_select;
-	
-	dest->data[6] = source.stick_up;
-	dest->data[7] = source.stick_down;
-	dest->data[8] = source.stick_left;
-	dest->data[9] = source.stick_right;
-	
-	dest->data[10] = source.wait_move;
-	
+	fprintf(file,"[ %d %d %d %d %d %d %d %d %d ",
+	source.id,
+	source.energy,
+	source.fat,
+	source.gen_select,
+	source.stick_up,
+	source.stick_down,
+	source.stick_left,
+	source.stick_right,
+	source.wait_move
+	);
 	for(int i=0;i<genome_len;i++)
 	{
-		dest->data[10+i] = source.genome[i].gen;
+		fprintf(file,"%d ",source.genome[i].gen);
 	}
+	fprintf(file,"]\n");
+}
+
+void FCellPaster(struct cell *dest,int pos,char *str)
+{
+	int value = atoi(str);
+	switch(pos)
+	{
+		case 0:
+			dest->id = value;
+			break;
+		case 1:
+			dest->energy = value;
+			break;
+		case 2:
+			dest->fat = value;
+			break;
+		case 3:
+			dest->gen_select = value;
+			break;
+		case 4:
+			dest->stick_up = value;
+			break;
+		case 5:
+			dest->stick_down = value;
+			break;
+		case 6:
+			dest->stick_left = value;
+			break;
+		case 7:
+			dest->stick_right = value;
+			break;
+		case 8:
+			dest->wait_move = value;
+			break;
+	}
+}
+
+void FCellGenomePaster(struct cell *dest,int i,char *str)
+{
+	
+}
+
+void FCellRead(FILE * file,struct cell *dest)
+{
+	char str[128];
+	memset(str,0,128);
+	char c;
+	int i=0;
+	int variable=0;
+	//read variables of cell: id, energy, and other
+    do {
+    	if(variable==9) break;
+    	c = getc(file);
+    	if(isdigit(c))
+    	{
+    		str[i]=c;
+    		i++;
+		}
+		if(c==' '&&str[0]!=0)
+		{
+			FCellPaster(dest,variable,str);
+			memset(str,0,128);
+			i=0;
+			variable++;
+		}
+	}
+	while(c!=EOF);
+	
+	//read cell genome
+	i=0;
+	variable=0;
+	do {
+    	c = getc(file);
+    	if(isdigit(c))
+    	{
+    		str[i]=c;
+    		i++;
+		}
+		if(c==' '&&str[0]!=0)
+		{
+			dest->genome[variable].gen = atoi(str);
+			memset(str,0,128);
+			i=0;
+			variable++;
+		}
+	}
+	while(c!=']');
 }
 
 void Save()
@@ -790,16 +875,20 @@ void Save()
 	{
 		for(int j=0;j<size_y;j++)
 		{
-			CellConvertToRaw(plate[i][j],&raw_buff);
-			int h = 0;
-			for(h=0;h<11;h++)
-			{
-				putc(raw_buff.data[h],f);
-			}
-			for(;h<256;h++)
-			{
-				putc(raw_buff.data[h],f);
-			}
+			FCellPrint(f,plate[i][j]);
+		}
+	}
+	fclose(f);
+}
+
+void Load()
+{
+	FILE * f = fopen("savefile.bin","rb");
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			FCellRead(f,&plate[i][j]);
 		}
 	}
 	fclose(f);
@@ -846,13 +935,44 @@ void CommandInput(char *str)
 	if(strcmp(str,"save")==0)
 	{
 		Save();
-		TextShow("Plate Saved! Check file savefile.bin",2000,0,0);
+		TextShow("Plate Saved! Check file savefile.bin",500,0,0);
+	}
+	if(strcmp(str,"load")==0)
+	{
+		Load();
+		TextShow("Plate Loaded!",500,0,0);
 	}
 	if(strcmp(str,"light")==0)
 	{
 		TextShow("Showing LightMap. . .",500,0,0);
 		LightShow();
 		getch();
+	}
+	if(strcmp(str,"exit")==0)
+	{
+		exit(0);
+	}
+	if(strcmp(str,"reload")==0)
+	{
+		for(int i=0;i<size_x;i++)
+		{
+			for(int j=0;j<size_y;j++)
+			{
+				SetAir(i,j);
+				if(i==0||j==0||i==size_x-1||j==size_y-1) SetWall(i,j);
+			}
+		}
+		for(int i=0;i<size_x;i++)
+		{
+			srand(rand()+clock());
+			for(int j=0;j<size_y;j++)
+			{
+				if(rand()%2==0)
+				{
+					CellSpawn(i,j,3);
+				}
+			}
+		}
 	}
 }
 
@@ -870,7 +990,7 @@ void GetCommand()
 			while(true)
 			{
 				c = getch();
-				if(c==';') break;
+				if(c==13) break;
 				command[i] = c;
 				TextShow(command,5,0,8);
 				i++;
@@ -880,8 +1000,6 @@ void GetCommand()
 					break;
 				}
 			}
-			sprintf(buf,"Command:%s",command);
-			TextShow(buf,1000,0,16);
 			CommandInput(command);
 		}
 	}
@@ -914,9 +1032,14 @@ int main()
 		srand(rand()+rand());
 		for(int j=0;j<size_y;j++)
 		{
-			CellSpawn(i,j,3);
+			if(rand()%2==0)
+			{
+				CellSpawn(i,j,3);
+			}
 		}
 	}
+	
+	
 	
 	LightGen();
 	//spawning end
@@ -924,10 +1047,10 @@ int main()
 	swapbuffers();
 	DrawCells();
 	swapbuffers();
-	while(dev_time<10000)
+	while(true)
 	{
 		GetCommand();
-		if(dev_time%20==0)
+		if(clock()%20==0)
 		{
 			DrawCells();
 			printf("%d\n",dev_time);
