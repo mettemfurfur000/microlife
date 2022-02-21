@@ -3,27 +3,36 @@
 #include <cmath>
 #include <ctime>
 #include <ctgmath>
+#include <dir.h>
 
 #include <graphics.h>
 
 const int genome_len = 256;
-const int size_x = 170;
-const int size_y = 170;
+const int size_x = 128;
+const int size_y = 128;
 const int cellsize = 4;
 
-int mutation_chance = 50; //5 = 0.5%, 1000 = 100%
-int fat2en_k_u = 3;
-int fat2en_k_d = 4;
+int mutation_chance = 20; //5 = 0.5%, 1000 = 100%
+int mutation_chance_swap = 50;
 
-/*
-if top var is 3, and bottom var is 4, fat2en_k = 3/4 = 0.75;
+int fat2en_k_u = 3; // 3/4 = 0,75
+int fat2en_k_d = 4; // 1024e >convert> 1f >convert> 768e
 
-why not single float variable?
+int autoreload_time = 5000;
+int autoreload_population = 100;
 
-i just multiple on k_u and divide on k_d - thats easier for our processor <3
-*/
+int population; //count of cells in current moment
+
+int wind_power = 5; //chance of wind moving
+int spawn_chance = 80; //chance of spawn cell in loar/reload
+
+unsigned long long dev_time = 0;
 
 int dev_genomelen_bitset_size = log2(genome_len);
+
+int dev_gen_num = 1;
+
+int graph = 1;
 
 struct quadr
 {
@@ -50,6 +59,8 @@ struct cell
 };
 
 struct cell **plate;
+
+struct cell *genotype;
 
 int light[size_x][size_y];
 /*
@@ -494,6 +505,7 @@ void CellMove(int x,int y,int dx,int dy,int mode)
 
 void CellClone(int x,int y,int dx,int dy)
 {
+	int swap;
 	if(plate[x+dx][y+dy].id==0&&plate[x][y].energy>2048)
 	{
 		plate[x][y].energy-=2048;
@@ -514,6 +526,12 @@ void CellClone(int x,int y,int dx,int dy)
 			if(rand()%1000<mutation_chance)
 			{
 				plate[x+dx][y+dy].genome[i].gen+=rand()%16;
+			}
+			if(rand()%1000<mutation_chance_swap)
+			{
+				swap = i+rand()%3-1;
+				plate[x+dx][y+dy].genome[i].gen=plate[x][y].genome[swap].gen;
+				plate[x+dx][y+dy].genome[swap].gen=plate[x][y].genome[i].gen;
 			}
 		}
 	}
@@ -679,14 +697,20 @@ int CellDraw(int x,int y)
 
 void DrawCells()
 {
-	for(int i=0;i<size_x;i++)
+	if(graph!=0)
 	{
-		for(int j=0;j<size_y;j++)
+		for(int i=0;i<size_x;i++)
 		{
-			CellDraw(i,j);
+			for(int j=0;j<size_y;j++)
+			{
+				CellDraw(i,j);
+			}
 		}
+		swapbuffers();
 	}
 }
+
+void WindSim();
 
 void WorldTick()
 {
@@ -718,6 +742,7 @@ void WorldTick()
 			}
 		}
 	}
+	WindSim();
 }
 
 void LightGen()
@@ -876,9 +901,12 @@ void FCellRead(FILE * file,struct cell *dest)
 	while(c!=']');
 }
 
-void Save()
+void Save(int number)
 {
-	FILE * f = fopen("savefile.bin","wb");
+	char str[128];
+	sprintf(str,"saves\\savefile%d.bin",number);
+	FILE * f = fopen(str,"wb");
+	
 	struct raw_cell raw_buff;
 	for(int i=0;i<size_x;i++)
 	{
@@ -939,14 +967,70 @@ void TextShow(char *str,int time,int dx,int dy)
 	wait(time);
 }
 
+void Clean()
+{
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			SetAir(i,j);
+		}
+	}
+}
+
+void GetText(char *dest,char *request);
+
+void SetWalls();
+
 void StatPrint(char *message);
+
+void RandomCellSpawn(int chance);
+
+void Reload()
+{
+	dev_gen_num++;
+	dev_time = 0;
+	Clean();
+	SetWalls();
+	RandomCellSpawn(spawn_chance);
+	StatPrint("\n\n");
+}
 
 void CommandInput(char *str)
 {
+	char command[128] = {0};
+	if(strcmp(str,"set")==0)
+	{
+		GetText(command,"Print Sub-Command");
+		if(strcmp(command,"mut-a")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			mutation_chance = atoi(command);
+		}
+		if(strcmp(command,"mut-b")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			mutation_chance_swap = atoi(command);
+		}
+		if(strcmp(command,"cell-chance")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			spawn_chance = atoi(command);
+		}
+		if(strcmp(command,"autoreload-time")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			spawn_chance = atoi(command);
+		}
+	}
 	if(strcmp(str,"save")==0)
 	{
-		Save();
-		TextShow("Plate Saved! Check file savefile.bin",500,0,0);
+		Save(0);
+		TextShow("Plate Saved! Check file savefile0.bin",500,0,0);
 	}
 	if(strcmp(str,"load")==0)
 	{
@@ -961,60 +1045,64 @@ void CommandInput(char *str)
 	}
 	if(strcmp(str,"exit")==0)
 	{
-		StatPrint("END OF SIMULATION\n\n");
+		StatPrint("\n\n");
 		exit(0);
 	}
 	if(strcmp(str,"reload")==0)
 	{
-		for(int i=0;i<size_x;i++)
+		Reload();
+	}
+	if(strcmp(str,"grph-toggle")==0)
+	{
+		if(graph==1)
 		{
-			for(int j=0;j<size_y;j++)
-			{
-				SetAir(i,j);
-				if(i==0||j==0||i==size_x-1||j==size_y-1) SetWall(i,j);
-			}
-		}
-		for(int i=0;i<size_x;i++)
-		{
-			srand(rand()+clock());
-			for(int j=0;j<size_y;j++)
-			{
-				if(rand()%2==0)
-				{
-					CellSpawn(i,j,3);
-				}
-			}
+			TextShow("GRAPHICS TOGGLE TO OFF",1000,0,0);
+			graph = 0;
+		}else{
+			TextShow("GRAPHICS TOGGLE TO ON",1000,0,0);
+			graph = 1;
 		}
 	}
 }
 
-void GetCommand()
+void GetText(char *dest,char *request)
 {
-	char buf[190] = {0};
 	char command[128] = {0};
 	char c;
 	int i = 0;
-	if(kbhit()==1)
+	TextShow(request,5,0,0);
+	while(true)
 	{
-		if(getch()=='c')
+		c = getch();
+		if(c==13) break; //if ENTER
+		if(c==8)
 		{
-			TextShow("Print Command",5,0,0);
-			while(true)
-			{
-				c = getch();
-				if(c==13) break;
-				command[i] = c;
-				TextShow(command,5,0,8);
-				i++;
-				if(i>=128)
-				{
-					TextShow("Too long command!",2000,0,0);
-					break;
-				}
-			}
-			CommandInput(command);
+			i--;
+			command[i] = 0;
+		}
+		else
+		{
+			command[i] = c;
+			i++;
+		}
+		TextShow(command,5,0,8);
+		if(i>=128)
+		{
+			TextShow("Too long command!",500,0,0);
+			break;
 		}
 	}
+	strcpy(dest,command);
+}
+
+void CommandProcessor()
+{
+	char command[256] = {0};
+	if(kbhit()!=0&&getch()=='c')
+	{
+		GetText(command,"Print Command");
+	}
+	CommandInput(command);
 }
 
 void StatCellNum(int dev_time)
@@ -1031,8 +1119,11 @@ void StatCellNum(int dev_time)
 			}
 		}
 	}
+	
+	population = cells;
+	
 	char str[32];
-	sprintf(str,"Time: %d \t Cell Count: %d \n",dev_time,cells);
+	sprintf(str,"%d \t",cells);
 	fputs(str,f);
 	fclose(f);
 }
@@ -1044,13 +1135,19 @@ void StatPrint(char *message)
 	fclose(f);
 }
 
-int main()
+void SetWalls()
 {
-	srand(time(NULL));
-	initwindow(size_x*cellsize,size_y*cellsize,"CyberBiology v0.1");
-	outtextxy(10,10,"Loading...");
-	//initialization of cell plate
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			if(i==0||j==0||i==size_x-1||j==size_y-1) SetWall(i,j);
+		}
+	}
+}
 
+void PlateInit()
+{
 	plate = new struct cell *[size_x];
 	for(int i=0;i<size_x;i++)
 	{
@@ -1061,45 +1158,77 @@ int main()
 			if(i==0||j==0||i==size_x-1||j==size_y-1) SetWall(i,j);
 		}
 	}
-	
-	//init end
-	
-	//spawn random things
-	
+}
+
+void RandomCellSpawn(int chance)
+{
+	int real_chance = int((1.0/chance)*100);
 	for(int i=0;i<size_x;i++)
 	{
 		srand(rand()+rand());
 		for(int j=0;j<size_y;j++)
 		{
-			if(rand()%2==0)
+			if(rand()%real_chance==0)
 			{
 				CellSpawn(i,j,3);
 			}
 		}
 	}
-	
-	
-	StatPrint("START OF SIMULATION\n");
+}
+
+void WindSim()
+{
+	int real_power = 100/wind_power;
+	for(int i=0;i<size_x;i++)
+	{
+		for(int j=0;j<size_y;j++)
+		{
+			if(rand()%real_power==0&&plate[i][j].id==3)
+			{
+				CellMove(i,j,rand()%3-1,rand()%3-1,0);
+			}
+		}
+	}
+}
+
+int main()
+{
+	mkdir("saves");
+	srand(time(NULL));
+	initwindow(size_x*cellsize,size_y*cellsize,"CyberBiology v0.1");
+	outtextxy(10,10,"Loading...");
+	PlateInit();
+	RandomCellSpawn(spawn_chance);
+	StatPrint("\n");
 	LightGen();
-	//spawning end
-	unsigned long long dev_time = 0;
 	swapbuffers();
-	DrawCells();
-	swapbuffers();
+	char str[128];
 	while(true)
 	{
-		GetCommand();
+		if(dev_time>=autoreload_time)
+		{
+			Save(dev_gen_num);
+			Reload();
+		}
+		if(population<=autoreload_population)
+		{
+			Reload();
+		}
+		if(kbhit()!=0&&getch()=='c')
+		{
+			GetText(str,"Print Command");
+			CommandInput(str);
+		}
 		if(dev_time%10==0)
 		{
 			DrawCells();
 			printf("%d\n",dev_time);
-			swapbuffers();
 			StatCellNum(dev_time);
 		}
 		WorldTick();
 		dev_time++;
 	}
-	StatPrint("END OF SIMULATION\n\n");
+	StatPrint("\n\n");
 	getch();
 	return 0;
 }
