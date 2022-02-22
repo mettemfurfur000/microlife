@@ -8,19 +8,20 @@
 #include <graphics.h>
 
 const int genome_len = 256;
-const int size_x = 128;
-const int size_y = 128;
+const int size_x = 96;
+const int size_y = 160;
 const int cellsize = 4;
-const int def_lifetime = 512;
+const int def_lifetime = 256;
 
-int mutation_chance = 20; //5 = 0.5%, 1000 = 100%
-int mutation_chance_swap = 50;
+int mutation_chance = 10; //5 = 0.5%, 1000 = 100%
+int mutation_chance_swap = 20;
 
-int fat2en_k_u = 3; // 3/4 = 0,75
-int fat2en_k_d = 4; // 1024e >convert> 1f >convert> 768e
+int organics2en_k_u = 3; // 3/4 = 0,75
+int organics2en_k_d = 4; // 1024e >convert> 1f >convert> 768e
 
-int autoreload_time = 20000;
-int autoreload_population = 10;
+int limit_sim_time = 1000;
+int total_sim_time = 0;
+int autoreload_population = 0;
 
 int population; //count of cells in current moment
 
@@ -33,7 +34,11 @@ int dev_genomelen_bitset_size = log2(genome_len);
 
 int dev_gen_num = 1;
 
+int sim_id = 0;
+
 int graph = 1;
+
+int lightlevel = 100;
 
 struct quadr
 {
@@ -45,7 +50,7 @@ struct cell
 	unsigned int id:3;
 	
 	unsigned int energy:16;
-	unsigned int fat:4;
+	unsigned int organics:4;
 	
 	unsigned int gen_select:8;
 	
@@ -62,11 +67,86 @@ int light[size_x][size_y];
 /*
 type
 0 - air
-1 - fat
+1 - organics
 2 - organic
 3 - cell
 4 - dev_wall
 */
+
+
+int windX = 1024;
+int windY = 768;
+
+int linus(FILE *f)
+{
+	int px=0;
+	int py=0;
+	int lpx,lpy;
+	
+	int max = (size_x*size_y);
+	
+	char str[32] = {0};
+	int value;
+	int value_num = 0;
+	
+	int color = COLOR(rand()%256,rand()%256,rand()%256);
+	
+	int i = 0;
+	char c = 0;
+	do{
+		c = getc(f);
+		if(isdigit(c))
+		{
+			str[i] = c;
+			i++;
+		}
+		if(isspace(c)&&str[0]!=0)
+		{
+			value = atoi(str);
+			px = (float(windX)/(total_sim_time/10)) * value_num;
+			py = (float(windY)/max) * value;
+			setcolor(color);
+			line(lpx,windY-lpy,px,windY-py);
+			
+			if(value_num%(limit_sim_time/10)==0)
+			{
+				putpixel(px,0,COLOR(255,0,0));
+			}
+			
+			lpx = px;
+			lpy = py;
+			value_num++;
+			memset(str,0,32);
+			i=0;
+		}
+		if(c==13&&str[0]==0)
+		{
+			break;
+		}
+	}while(c!=EOF);
+	if(c==EOF)
+	{
+		return 5;
+	}
+	return 0;
+}
+
+void SaveScreen(int id,int number)
+{
+	char str[128];
+	sprintf(str,"saves\\gen_%d",id);
+	mkdir(str);
+	sprintf(str,"%s\\pic_%d_%d.bmp",str,id,number);
+	writeimagefile(str,0,0,windX-1,windY-1);
+}
+
+void Graph(char *path)
+{
+	FILE * f = fopen(path,"rb");
+	while(linus(f)!=5)
+	{}
+	fclose(f);
+}
 
 void wait(int ms)
 {
@@ -74,6 +154,7 @@ void wait(int ms)
 	int waittime = clock() + CL_PER_MS * ms;
 	while(waittime > clock()){}
 }
+
 
 int CellSpawn(int x,int y,int type)
 {
@@ -89,10 +170,10 @@ int CellSpawn(int x,int y,int type)
 		}
 		switch(type)
 		{
-			case 0:plate[x][y].fat = 0; break;
-			case 1:plate[x][y].fat = 5; break;
-			case 2:plate[x][y].fat = 0; break;
-			case 3:plate[x][y].fat = 5; break;
+			case 0:plate[x][y].organics = 0; break;
+			case 1:plate[x][y].organics = 5; break;
+			case 2:plate[x][y].organics = 0; break;
+			case 3:plate[x][y].organics = 5; break;
 		}
 		plate[x][y].lifetime = 0;
 		if(type==3)
@@ -119,7 +200,7 @@ void SetAir(int x,int y)
 {
 	plate[x][y].id = 0;
 	plate[x][y].energy = 0;
-	plate[x][y].fat = 0;
+	plate[x][y].organics = 0;
 	plate[x][y].gen_select = 0;
 	
 	plate[x][y].lifetime = 0;
@@ -134,7 +215,7 @@ void SetWall(int x,int y)
 {
 	plate[x][y].id = 4;
 	plate[x][y].energy = 0;
-	plate[x][y].fat = 0;
+	plate[x][y].organics = 0;
 	plate[x][y].gen_select = 0;
 	
 	plate[x][y].lifetime = 0;
@@ -170,7 +251,7 @@ void CellDrop(int x,int y,int type)
 	}
 }
 
-int CellConsume(int x,int y)
+int CellConsume(int x,int y,int type)
 {
 	int loop = 0;
 	int sx,sy;
@@ -178,10 +259,10 @@ int CellConsume(int x,int y)
 	{
 		sx = rand()%3-1;
 		sy = rand()%3-1;
-		if(plate[x+sx][y+sy].id==1)
+		if(plate[x+sx][y+sy].id==type)
 		{
 			SetAir(x+sx,y+sy);
-			plate[x][y].fat++;
+			plate[x][y].organics++;
 			return 0; //success
 		}
 		loop++;
@@ -220,7 +301,7 @@ void Transfer(int x,int y,int mode, int side)
 	/*
 	modes
 	0 - transfer energy (1 to 1)
-	1 - transfer fat (1 to 1)
+	1 - transfer organics (1 to 1)
 	2 - genome sector (a..b) in c.. (mutatuon chance x2)
 	3 - gen selector update
 	
@@ -232,17 +313,17 @@ void Transfer(int x,int y,int mode, int side)
 	
 	type
 	0 - void
-	1 - fat
+	1 - organics
 	2 - organic
 	3 - cell
 	*/	
 	//printf("%d|%d|%d|%d\n",x,y,mode,side);
-	switch(side)//select side of energy/fat transfer
+	switch(side)//select side of energy/organics transfer
 	{
 		case 0:
 			if(plate[x][y-1].id==3) //if cell exists
 			{
-				switch(mode) //select mode of transfer, energy or fat
+				switch(mode) //select mode of transfer, energy or organics
 				{
 					case 0:
 						if(plate[x][y].energy>512&&plate[x][y-1].energy<65024)
@@ -252,10 +333,10 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 1:
-						if(plate[x][y].fat>0&&plate[x][y-1].fat<15)
+						if(plate[x][y].organics>0&&plate[x][y-1].organics<15)
 						{
-							plate[x][y].fat-=1;
-							plate[x][y-1].fat+=1;
+							plate[x][y].organics-=1;
+							plate[x][y-1].organics+=1;
 						}
 						break;
 					case 2:
@@ -281,10 +362,10 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 1:
-						if(plate[x][y].fat>0)
+						if(plate[x][y].organics>0)
 						{
-							plate[x][y].fat-=1;
-							plate[x][y+1].fat+=1;
+							plate[x][y].organics-=1;
+							plate[x][y+1].organics+=1;
 						}
 						break;
 					case 2:
@@ -310,10 +391,10 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 1:
-						if(plate[x][y].fat>0)
+						if(plate[x][y].organics>0)
 						{
-							plate[x][y].fat-=1;
-							plate[x+1][y].fat+=1;
+							plate[x][y].organics-=1;
+							plate[x+1][y].organics+=1;
 						}
 						break;
 					case 2:
@@ -339,10 +420,10 @@ void Transfer(int x,int y,int mode, int side)
 						}
 						break;
 					case 1:
-						if(plate[x][y].fat>0)
+						if(plate[x][y].organics>0)
 						{
-							plate[x][y].fat-=1;
-							plate[x-1][y].fat+=1;
+							plate[x][y].organics-=1;
+							plate[x-1][y].organics+=1;
 						}
 						break;
 					case 2:
@@ -391,10 +472,10 @@ void CellBite(int x,int y)
 		plate[x+bx][y+by].energy-=2048;
 		plate[x][y].energy+=1024;
 	}
-	if(plate[x+bx][y+by].fat>2&&plate[x][y].fat<15)
+	if(plate[x+bx][y+by].organics>2&&plate[x][y].organics<15)
 	{
-		plate[x+bx][y+by].fat-=2;
-		plate[x][y].fat+=1;
+		plate[x+bx][y+by].organics-=2;
+		plate[x][y].organics+=1;
 	}
 }
 
@@ -432,7 +513,7 @@ void CellMove(int x,int y,int dx,int dy,int mode)
 	
 	//FIRST, move self!
 	
-	if(plate[x+dx][y+dy].id==1||plate[x+dx][y+dy].id==3)
+	if(plate[x+dx][y+dy].id==1||plate[x+dx][y+dy].id==3||plate[x+dx][y+dy].id==0)
 	{
 		struct cell buff;
 		buff = plate[x][y];
@@ -481,7 +562,7 @@ cellclone:
 	{
 		plate[x][y].energy-=3072;
 		plate[x+dx][y+dy].id = 3;
-		plate[x+dx][y+dy].fat = 0;
+		plate[x+dx][y+dy].organics = 0;
 		plate[x+dx][y+dy].energy = 1024;
 		
 		plate[x+dx][y+dy].lifetime = 0;
@@ -518,38 +599,38 @@ void GenomeTick(int x,int y)
 			plate[x][y].energy+=light[x][y]*1.5;
 			plate[x][y].gen_select++;
 			break;
-		//fat to energy
+		//organics to energy
 		case 2:
-			if(plate[x][y].fat>0)
+			if(plate[x][y].organics>0)
 			{
-				plate[x][y].fat--;
-				plate[x][y].energy+=((1024*fat2en_k_u)/fat2en_k_d);
+				plate[x][y].organics--;
+				plate[x][y].energy+=((1024*organics2en_k_u)/organics2en_k_d);
 			}
 			plate[x][y].gen_select++;
 			break;
-		//energy to fat
+		//energy to organics
 		case 3:
 			if(plate[x][y].energy>1024)
 			{
-				plate[x][y].fat++;
+				plate[x][y].organics++;
 				plate[x][y].energy-=1024;
 			}
 			plate[x][y].gen_select++;
 			break;
-		//fat drop
+		//organics drop
 		case 4:
-			if(plate[x][y].fat>0)
+			if(plate[x][y].organics>0)
 			{
 				CellDrop(x,y,1);
-				plate[x][y].fat--;
+				plate[x][y].organics--;
 			}
 			plate[x][y].gen_select++;
 			break;
-		//fat consume
+		//organics consume
 		case 5:
-			if(plate[x][y].fat<15)
+			if(plate[x][y].organics<15)
 			{
-				CellConsume(x,y);
+				CellConsume(x,y,1);
 			}
 			plate[x][y].gen_select++;
 			break;
@@ -566,9 +647,9 @@ void GenomeTick(int x,int y)
 				plate[x][y].gen_select+=4;
 			}
 			break;
-		//if fat!!!!!!!!!!!
+		//if organics!!!!!!!!!!!
 		case 8:
-			if(plate[x][y].fat/4>plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen+16*plate[x][y].genome[(plate[x][y].gen_select+2)%genome_len].gen)
+			if(plate[x][y].organics/4>plate[x][y].genome[(plate[x][y].gen_select+1)%genome_len].gen+16*plate[x][y].genome[(plate[x][y].gen_select+2)%genome_len].gen)
 			{
 				plate[x][y].gen_select+=3;
 			}else{
@@ -576,6 +657,12 @@ void GenomeTick(int x,int y)
 			}
 			break;
 		case 9:
+		//wastes consume & transform to energy
+			if(plate[x][y].organics<15)
+			{
+				CellConsume(x,y,2);
+			}
+			plate[x][y].gen_select++;
 			break;
 		case 10:
 			break;
@@ -703,7 +790,7 @@ void WorldTick()
 					plate[i][j].energy-=32;
 				}else{
 					SetAir(i,j);
-					if(plate[i][j].fat>0)
+					if(plate[i][j].organics>0)
 					{
 						CellSpawn(i,j,1);
 					}
@@ -712,7 +799,7 @@ void WorldTick()
 				if(plate[i][j].lifetime>=def_lifetime)//too old? die
 				{
 					SetAir(i,j);
-					if(plate[i][j].fat>0)
+					if(plate[i][j].organics>0)
 					{
 						CellSpawn(i,j,1);
 					}
@@ -723,14 +810,17 @@ void WorldTick()
 	}
 }
 
-void LightGen()
+void LightGen(int power)
 {
 	int buff[size_x][size_y];
+	int b;
 	for(int i=0;i<size_x;i++)
 	{
 		for(int j=0;j<size_y;j++)
 		{
-			light[i][j]=size_y + rand()%50-j;
+			b = rand()%100 + size_y - j + power-100;
+			if(b<0) b = 0;
+			light[i][j]=b;
 		}
 	}
 	int num=0;
@@ -772,12 +862,14 @@ struct raw_cell
 	unsigned char data[300];
 };
 
+
+
 void FCellPrint(FILE * file,struct cell source)
 {
 	fprintf(file,"[ %d %d %d %d %d ",
 	source.id,
 	source.energy,
-	source.fat,
+	source.organics,
 	source.gen_select,
 	source.lifetime
 	);
@@ -800,7 +892,7 @@ void FCellPaster(struct cell *dest,int pos,char *str)
 			dest->energy = value;
 			break;
 		case 2:
-			dest->fat = value;
+			dest->organics = value;
 			break;
 		case 3:
 			dest->gen_select = value;
@@ -858,10 +950,14 @@ void FCellRead(FILE * file,struct cell *dest)
 	while(c!=']');
 }
 
-void Save(int number)
+void Save(int id,int number)
 {
 	char str[128];
-	sprintf(str,"saves\\savefile%d_%d.bin",number,population);
+	
+	sprintf(str,"saves\\gen_%d",id);
+	mkdir(str);
+	sprintf(str,"%s\\savefile%d_%d.bin",str,number,population);
+	
 	FILE * f = fopen(str,"wb");
 	for(int i=0;i<size_x;i++)
 	{
@@ -941,83 +1037,31 @@ void StatPrint(char *message);
 
 void RandomCellSpawn(int chance);
 
+void CreateGraphicAndReload(int id,int gen);
+
 void Reload()
 {
-	dev_gen_num++;
+	
+	lightlevel = 100;
+	LightGen(lightlevel);
+	dev_gen_num = 0;
 	dev_time = 0;
+	sim_id++;
+	CreateGraphicAndReload(sim_id,dev_gen_num);
 	Clean();
 	SetWalls();
 	RandomCellSpawn(spawn_chance);
 	StatPrint("\n\n");
+	total_sim_time = 0;
+	system("del stats.bin");
 }
 
-void CommandInput(char *str)
+void NewCycle()
 {
-	char command[128] = {0};
-	if(strcmp(str,"set")==0)
-	{
-		GetText(command,"Print Sub-Command");
-		if(strcmp(command,"mut-a")==0)
-		{
-			memset(command,0,128);
-			GetText(command,"Print Value");
-			mutation_chance = atoi(command);
-		}
-		if(strcmp(command,"mut-b")==0)
-		{
-			memset(command,0,128);
-			GetText(command,"Print Value");
-			mutation_chance_swap = atoi(command);
-		}
-		if(strcmp(command,"cell-chance")==0)
-		{
-			memset(command,0,128);
-			GetText(command,"Print Value");
-			spawn_chance = atoi(command);
-		}
-		if(strcmp(command,"autoreload-time")==0)
-		{
-			memset(command,0,128);
-			GetText(command,"Print Value");
-			spawn_chance = atoi(command);
-		}
-	}
-	if(strcmp(str,"save")==0)
-	{
-		Save(0);
-		TextShow("Plate Saved! Check file savefile0.bin",500,0,0);
-	}
-	if(strcmp(str,"load")==0)
-	{
-		Load();
-		TextShow("Plate Loaded!",500,0,0);
-	}
-	if(strcmp(str,"light")==0)
-	{
-		TextShow("Showing LightMap. . .",500,0,0);
-		LightShow();
-		getch();
-	}
-	if(strcmp(str,"exit")==0)
-	{
-		StatPrint("\n\n");
-		exit(0);
-	}
-	if(strcmp(str,"reload")==0)
-	{
-		Reload();
-	}
-	if(strcmp(str,"grph-toggle")==0)
-	{
-		if(graph==1)
-		{
-			TextShow("GRAPHICS TOGGLE TO OFF",1000,0,0);
-			graph = 0;
-		}else{
-			TextShow("GRAPHICS TOGGLE TO ON",1000,0,0);
-			graph = 1;
-		}
-	}
+	lightlevel--;
+	LightGen(lightlevel);
+	dev_gen_num++;
+	dev_time = 0;
 }
 
 void GetText(char *dest,char *request)
@@ -1049,6 +1093,8 @@ void GetText(char *dest,char *request)
 	}
 	strcpy(dest,command);
 }
+
+void CommandInput(char *str);
 
 void CommandProcessor()
 {
@@ -1133,7 +1179,7 @@ void RandomCellSpawn(int chance)
 
 void WindSim()
 {
-	int real_power = 100/wind_power;
+	int real_power = 100.0/wind_power;
 	for(int i=0;i<size_x;i++)
 	{
 		for(int j=0;j<size_y;j++)
@@ -1142,6 +1188,98 @@ void WindSim()
 			{
 				CellMove(i,j,rand()%3-1,rand()%3-1,0);
 			}
+			if(rand()%real_power==0&&plate[i][j].id==1)
+			{
+				CellMove(i,j,rand()%3-1,1,0);
+			}
+		}
+	}
+}
+
+void CreateGraphicAndReload(int id,int gen)
+{
+	closegraph();
+	
+	//////////////////////////////
+	initwindow(windX,windY);
+	
+	Graph("stats.bin");
+	
+	SaveScreen(id,gen);
+	
+	closegraph();
+	//////////////////////////
+	
+	initwindow(size_x*cellsize,size_y*cellsize,"CyberBiology v0.1");
+	swapbuffers();
+}
+
+void CommandInput(char *str)
+{
+	char command[128] = {0};
+	if(strcmp(str,"set")==0)
+	{
+		GetText(command,"Print Sub-Command");
+		if(strcmp(command,"mut-a")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			mutation_chance = atoi(command);
+		}
+		if(strcmp(command,"mut-b")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			mutation_chance_swap = atoi(command);
+		}
+		if(strcmp(command,"cell-chance")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			spawn_chance = atoi(command);
+		}
+		if(strcmp(command,"autoreload-time")==0)
+		{
+			memset(command,0,128);
+			GetText(command,"Print Value");
+			spawn_chance = atoi(command);
+		}
+	}
+	if(strcmp(str,"save")==0)
+	{
+		Save(0,0);
+		TextShow("Plate Saved! Check file savefile0.bin",500,0,0);
+	}
+	if(strcmp(str,"load")==0)
+	{
+		Load();
+		TextShow("Plate Loaded!",500,0,0);
+	}
+	if(strcmp(str,"light")==0)
+	{
+		TextShow("Showing LightMap. . .",500,0,0);
+		LightShow();
+		getch();
+	}
+	if(strcmp(str,"exit")==0)
+	{
+		StatPrint("\n\n");
+		system("del stats.bin");
+		exit(0);
+	}
+	if(strcmp(str,"reload")==0)
+	{
+		Reload();
+	}
+	if(strcmp(str,"grph-toggle")==0)
+	{
+		if(graph==1)
+		{
+			TextShow("GRAPHICS TOGGLE TO OFF",1000,0,0);
+			graph = 0;
+		}else{
+			TextShow("GRAPHICS TOGGLE TO ON",1000,0,0);
+			graph = 1;
 		}
 	}
 }
@@ -1152,22 +1290,24 @@ int main()
 	srand(time(NULL));
 	initwindow(size_x*cellsize,size_y*cellsize,"CyberBiology v0.1");
 	outtextxy(10,10,"Loading...");
+	
 	PlateInit();
 	RandomCellSpawn(spawn_chance);
 	StatPrint("\n");
-	LightGen();
+	LightGen(lightlevel);
 	swapbuffers();
 	char str[128];
 	while(true)
 	{
-		if(dev_time>=autoreload_time)
-		{
-			Save(dev_gen_num);
-			Reload();
-		}
 		if(population<=autoreload_population)
 		{
 			Reload();
+		}
+		if(dev_time>=limit_sim_time)
+		{
+			lightlevel--;
+			//Save(sim_id,dev_gen_num);
+			NewCycle();
 		}
 		if(kbhit()!=0&&getch()=='c')
 		{
@@ -1178,12 +1318,13 @@ int main()
 		{
 			DevErrorsClear();
 			DrawCells();
-			printf("%d\n",dev_time);
+			printf("%d\n",total_sim_time);
 			StatCellNum(dev_time);
 			WindSim();
 		}
 		WorldTick();
 		dev_time++;
+		total_sim_time++;
 	}
 	StatPrint("\n\n");
 	getch();
