@@ -19,7 +19,7 @@ int mutation_chance_swap = 20;
 int organics2en_k_u = 3; // 3/4 = 0,75
 int organics2en_k_d = 4; // 1024e >convert> 1f >convert> 768e
 
-int limit_sim_time = 1000;
+int limit_sim_time = 10000;
 int total_sim_time = 0;
 int autoreload_population = 0;
 
@@ -29,16 +29,16 @@ int wind_power = 20; //chance of wind moving
 int spawn_chance = 50; //chance of spawn cell in loar/reload
 
 unsigned long long dev_time = 0;
-
 int dev_genomelen_bitset_size = log2(genome_len);
-
 int dev_gen_num = 1;
-
 int sim_id = 0;
 
 int graph = 1;
 
-int lightlevel = 100;
+int basic_light = 100;
+int lightlevel = basic_light;
+int lightlevel_fall = 20;
+
 
 struct quadr
 {
@@ -89,7 +89,11 @@ int linus(FILE *f)
 	int value;
 	int value_num = 0;
 	
-	int color = COLOR(rand()%256,rand()%256,rand()%256);
+	setcolor(COLOR(255,255,255));
+	
+	bar(0,0,windX,windY);
+	
+	int color = COLOR(0,0,0);
 	
 	int i = 0;
 	char c = 0;
@@ -790,10 +794,7 @@ void WorldTick()
 					plate[i][j].energy-=32;
 				}else{
 					SetAir(i,j);
-					if(plate[i][j].organics>0)
-					{
-						CellSpawn(i,j,1);
-					}
+					CellSpawn(i,j,1);
 				}
 				
 				if(plate[i][j].lifetime>=def_lifetime)//too old? die
@@ -1039,26 +1040,31 @@ void RandomCellSpawn(int chance);
 
 void CreateGraphicAndReload(int id,int gen);
 
+void CreatePic()
+{
+	CreateGraphicAndReload(sim_id,dev_gen_num);
+	system("del stats.bin");
+	total_sim_time = 0;
+}
+
 void Reload()
 {
-	
-	lightlevel = 100;
+	CreatePic();
+	lightlevel = basic_light;
 	LightGen(lightlevel);
 	dev_gen_num = 0;
 	dev_time = 0;
 	sim_id++;
-	CreateGraphicAndReload(sim_id,dev_gen_num);
 	Clean();
 	SetWalls();
 	RandomCellSpawn(spawn_chance);
 	StatPrint("\n\n");
-	total_sim_time = 0;
-	system("del stats.bin");
 }
 
 void NewCycle()
 {
-	lightlevel--;
+	CreatePic();
+	lightlevel-=lightlevel_fall;
 	LightGen(lightlevel);
 	dev_gen_num++;
 	dev_time = 0;
@@ -1188,7 +1194,7 @@ void WindSim()
 			{
 				CellMove(i,j,rand()%3-1,rand()%3-1,0);
 			}
-			if(rand()%real_power==0&&plate[i][j].id==1)
+			if(rand()%2&&plate[i][j].id==1)
 			{
 				CellMove(i,j,rand()%3-1,1,0);
 			}
@@ -1305,7 +1311,7 @@ int main()
 		}
 		if(dev_time>=limit_sim_time)
 		{
-			lightlevel--;
+			lightlevel-=lightlevel_fall;
 			//Save(sim_id,dev_gen_num);
 			NewCycle();
 		}
